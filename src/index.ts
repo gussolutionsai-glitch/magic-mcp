@@ -9,6 +9,8 @@ import { CreateUiTool } from "./tools/create-ui.js";
 import { FetchUiTool } from "./tools/fetch-ui.js";
 import { LogoSearchTool } from "./tools/logo-search.js";
 import { RefineUiTool } from "./tools/refine-ui.js";
+import { SearchContractOpportunitiesTool } from "./tools/search-contract-opportunities.js";
+import { SearchContractAwardsTool } from "./tools/search-contract-awards.js";
 
 setupJsonConsole();
 
@@ -23,6 +25,8 @@ new CreateUiTool().register(server);
 new LogoSearchTool().register(server);
 new FetchUiTool().register(server);
 new RefineUiTool().register(server);
+new SearchContractOpportunitiesTool().register(server);
+new SearchContractAwardsTool().register(server);
 
 async function runServer() {
   const transport = new StdioServerTransport();

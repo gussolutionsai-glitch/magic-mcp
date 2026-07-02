@@ -147,6 +147,17 @@ Optionally, you can add it to a file called `.vscode/mcp.json` in your workspace
 }
 ```
 
+## 🏛️ Government Contract Scraper
+
+This fork adds a government contract scraper for finding federal contract
+opportunities on SAM.gov and researching past pricing on USASpending.gov.
+It is available as a CLI (`npm run scrape -- --help`) and as two MCP tools
+(`search_contract_opportunities`, `search_contract_awards`).
+
+See [docs/government-contract-scraper.md](docs/government-contract-scraper.md)
+for setup (free SAM.gov API key), usage examples, and the bid-research
+workflow it supports.
+
 ## ❓ FAQ
 
 ### How does Magic AI Agent handle my codebase?
