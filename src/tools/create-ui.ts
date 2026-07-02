@@ -66,20 +66,22 @@ export class CreateUiTool extends BaseTool {
         });
 
         if (config.github) {
-          try {
-            const projectDir = absolutePathToProjectDirectory;
+          const projectDir = absolutePathToProjectDirectory;
+          let originalBranch = "";
+          let switchedBranch = false;
+          let stashed = false;
 
+          try {
             const salt = Math.random().toString(36).substring(2, 8);
             const slug = `temp-${salt}-${Date.now()}`;
             const branchName = `21st/${slug}`;
 
-            const originalBranch = await git(
+            originalBranch = await git(
               projectDir,
               "rev-parse --abbrev-ref HEAD"
             );
             const status = await git(projectDir, "status --porcelain");
             const hasLocalChanges = status.length > 0;
-            let stashed = false;
 
             // Get repo in "owner/repo" format from remote URL
             const remoteUrl = await git(projectDir, "remote get-url origin");
@@ -94,6 +96,7 @@ export class CreateUiTool extends BaseTool {
 
             // 2. Create new branch
             await git(projectDir, `checkout -b ${branchName}`);
+            switchedBranch = true;
 
             // 3. Apply stash if we stashed
             if (stashed) {
@@ -110,12 +113,6 @@ export class CreateUiTool extends BaseTool {
             // 5. Push to origin (throws error if fails)
             await git(projectDir, `push -u origin ${branchName}`);
 
-            // 6. Restore original state
-            await git(projectDir, `checkout ${originalBranch}`);
-            if (stashed) {
-              await git(projectDir, "stash pop");
-            }
-
             // Add branch/repo only on success
             params.set("branch", branchName);
             params.set("repo", repo);
@@ -125,6 +122,30 @@ export class CreateUiTool extends BaseTool {
               "Error with git operations, falling back to canvas without branch/repo",
               error
             );
+          } finally {
+            // Restore original branch/stash regardless of where the flow
+            // above failed, so a partial failure never leaves the repo
+            // stuck on the temp branch with an un-popped stash.
+            if (switchedBranch && originalBranch) {
+              try {
+                await git(projectDir, `checkout ${originalBranch}`);
+              } catch (checkoutError) {
+                console.error(
+                  "Failed to restore original branch after magic-ui git flow",
+                  checkoutError
+                );
+              }
+            }
+            if (stashed) {
+              try {
+                await git(projectDir, "stash pop");
+              } catch (popError) {
+                console.error(
+                  "Failed to restore stashed changes after magic-ui git flow; check `git stash list`",
+                  popError
+                );
+              }
+            }
           }
         }
 
