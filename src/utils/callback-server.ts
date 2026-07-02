@@ -9,6 +9,12 @@ export interface CallbackServerConfig {
   timeout?: number;
 }
 
+const ALLOWED_ORIGIN = "https://21st.dev";
+// Any single POST to /data resolves the callback, so cap the body to stop a
+// malicious localhost caller from holding the connection open with an
+// unbounded stream.
+const MAX_BODY_BYTES = 1024 * 1024;
+
 export class CallbackServer {
   private server: Server | null = null;
   private port: number;
@@ -35,19 +41,39 @@ export class CallbackServer {
   }
 
   private parseBody(req: IncomingMessage): Promise<string> {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       let body = "";
+      let size = 0;
       req.on("data", (chunk) => {
+        size += chunk.length;
+        if (size > MAX_BODY_BYTES) {
+          reject(new Error("Callback body too large"));
+          req.destroy();
+          return;
+        }
         body += chunk.toString();
       });
       req.on("end", () => {
         resolve(body);
       });
+      req.on("error", reject);
     });
   }
 
   private handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
-    res.setHeader("Access-Control-Allow-Origin", "*");
+    const origin = req.headers.origin;
+
+    // Origin is browser-controlled and cannot be spoofed by a webpage, so
+    // this blocks callbacks forged by other tabs/sites even though the
+    // server only binds to 127.0.0.1. Non-browser localhost callers won't
+    // send an Origin header at all, so we only reject a *mismatched* one.
+    if (origin && origin !== ALLOWED_ORIGIN) {
+      res.writeHead(403, { "Content-Type": "text/plain" });
+      res.end("Forbidden");
+      return;
+    }
+
+    res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
     res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
@@ -58,8 +84,15 @@ export class CallbackServer {
     }
 
     if (req.method === "POST" && req.url === "/data") {
-      const body = await this.parseBody(req);
-      
+      let body: string;
+      try {
+        body = await this.parseBody(req);
+      } catch (error) {
+        res.writeHead(413, { "Content-Type": "text/plain" });
+        res.end("Payload too large");
+        return;
+      }
+
       if (this.promiseResolve) {
         if (this.timeoutId) clearTimeout(this.timeoutId);
         
