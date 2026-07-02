@@ -1,0 +1,95 @@
+# Runs the government contract scraper every day and commits the results to
+# the data/ folder. Filters are set via the env block below — edit them to
+# change what gets scraped.
+#
+# SAM.gov opportunities require the SAM_GOV_API_KEY repository secret
+# (Settings -> Secrets and variables -> Actions). Without it the workflow
+# still runs and refreshes the USASpending.gov past-award data.
+name: Scrape government contracts
+
+on:
+  schedule:
+    - cron: "0 11 * * *" # daily at 11:00 UTC (~6am ET)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: scrape-contracts
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    env:
+      SAM_GOV_API_KEY: ${{ secrets.SAM_GOV_API_KEY }}
+      # Starter industries: landscaping, hazardous waste collection,
+      # food service contractors, all other personal services
+      NAICS_CODES: "561730,562112,722310,812990"
+      SET_ASIDE: "SBA"
+      MIN_DEADLINE_DAYS: "7"
+      RFQ_MAX_AMOUNT: "350000"
+      MAX_RECORDS: "100"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install and build
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+
+      - name: Scrape past awards (USASpending.gov)
+        run: |
+          mkdir -p data
+          node dist/scraper/cli.js --source awards \
+            --naics "$NAICS_CODES" \
+            --max-amount "$RFQ_MAX_AMOUNT" \
+            --max "$MAX_RECORDS" \
+            --out data/awards.json
+
+      - name: Scrape open opportunities (SAM.gov)
+        if: env.SAM_GOV_API_KEY != ''
+        run: |
+          mkdir -p data
+          node dist/scraper/cli.js \
+            --naics "$NAICS_CODES" \
+            --set-aside "$SET_ASIDE" \
+            --min-deadline-days "$MIN_DEADLINE_DAYS" \
+            --max "$MAX_RECORDS" \
+            --out data/opportunities.json
+
+      - name: Note missing SAM.gov key
+        if: env.SAM_GOV_API_KEY == ''
+        run: |
+          echo "::warning::SAM_GOV_API_KEY secret is not set, so SAM.gov opportunities were skipped. Add it under Settings -> Secrets and variables -> Actions."
+
+      - name: Convert results to CSV
+        run: |
+          for name in opportunities awards; do
+            if [ -f "data/$name.json" ]; then
+              node --input-type=module -e "
+                import { readFileSync, writeFileSync } from 'node:fs';
+                import { toCsv } from './dist/scraper/csv.js';
+                const records = JSON.parse(readFileSync('data/$name.json', 'utf8'));
+                writeFileSync('data/$name.csv', toCsv(records) + '\n');
+              "
+            fi
+          done
+
+      - name: Commit updated data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: daily contract data refresh ($(date -u +%Y-%m-%d))"
+            git push
+          fi

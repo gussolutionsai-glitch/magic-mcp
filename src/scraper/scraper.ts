@@ -101,29 +101,44 @@ export async function scrapeContracts(
     } else {
       const daysBack = options.daysBack ?? DEFAULT_OPPORTUNITY_DAYS_BACK;
       const client = new SamGovClient(apiKey);
-      const result = await client.search(
-        {
-          keywords: options.keywords,
-          naicsCode: options.naicsCodes?.[0],
-          setAside: options.setAside,
-          noticeType: options.noticeType,
-          agency: options.agency,
-          state: options.state,
-          postedFrom: formatSamDate(new Date(now.getTime() - daysBack * DAY_MS)),
-          postedTo: formatSamDate(now),
-        },
-        { maxRecords }
-      );
-      samTotalRecords = result.totalRecords;
-      records.push(
-        ...filterByDeadline(result.records, options.minDaysUntilDeadline, now)
-      );
-      if (options.naicsCodes && options.naicsCodes.length > 1) {
-        warnings.push(
-          "SAM.gov search used only the first NAICS code " +
-            `(${options.naicsCodes[0]}); the API accepts one per query.`
+      // The SAM.gov API accepts one NAICS code per query, so fan out one
+      // query per code and dedupe (a notice can match several searches).
+      const naicsCodes = options.naicsCodes?.length
+        ? options.naicsCodes
+        : [undefined];
+      const collected: ContractRecord[] = [];
+      const seenIds = new Set<string>();
+      let totalRecords = 0;
+      for (const naicsCode of naicsCodes) {
+        const remaining = maxRecords - collected.length;
+        if (remaining <= 0) break;
+        const result = await client.search(
+          {
+            keywords: options.keywords,
+            naicsCode,
+            setAside: options.setAside,
+            noticeType: options.noticeType,
+            agency: options.agency,
+            state: options.state,
+            postedFrom: formatSamDate(
+              new Date(now.getTime() - daysBack * DAY_MS)
+            ),
+            postedTo: formatSamDate(now),
+          },
+          { maxRecords: remaining }
         );
+        totalRecords += result.totalRecords;
+        for (const record of result.records) {
+          if (!seenIds.has(record.id)) {
+            seenIds.add(record.id);
+            collected.push(record);
+          }
+        }
       }
+      samTotalRecords = totalRecords;
+      records.push(
+        ...filterByDeadline(collected, options.minDaysUntilDeadline, now)
+      );
     }
   }
 

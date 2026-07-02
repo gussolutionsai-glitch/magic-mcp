@@ -69,6 +69,29 @@ the whole find-and-price workflow conversationally:
   largest first) by keyword, NAICS, agency, and award-amount bounds. No API
   key required.
 
+## Automated daily scrape (GitHub Actions)
+
+The repository includes a scheduled workflow,
+[`.github/workflows/scrape-contracts.yml`](../.github/workflows/scrape-contracts.yml),
+that runs the scraper every day at 11:00 UTC (and on demand from the Actions
+tab via "Run workflow") and commits the results to the `data/` folder:
+
+- `data/opportunities.json` / `.csv` — open SAM.gov solicitations matching
+  the configured NAICS codes and set-aside, skipping anything that closes
+  within the configured deadline window
+- `data/awards.json` / `.csv` — recent USASpending.gov awards in the same
+  industries under the RFQ threshold, for pricing research
+
+Setup: add your SAM.gov key as a repository secret named `SAM_GOV_API_KEY`
+(**Settings → Secrets and variables → Actions → New repository secret**).
+Without the secret the workflow still runs, but only refreshes the
+USASpending.gov award data.
+
+To change what gets scraped (industries, set-aside, deadline window, RFQ
+cap, record limit), edit the `env` block at the top of the workflow file.
+When multiple NAICS codes are configured, the scraper runs one SAM.gov
+query per code and dedupes the combined results.
+
 ## The bid-research workflow
 
 The scraper is built around a specific selection strategy for finding

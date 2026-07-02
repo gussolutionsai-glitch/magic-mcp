@@ -1,4 +1,4 @@
-import { filterByDeadline } from "./scraper.js";
+import { filterByDeadline, scrapeContracts } from "./scraper.js";
 import { ContractRecord } from "./types.js";
 
 function record(responseDeadline?: string): ContractRecord {
@@ -29,5 +29,49 @@ describe("filterByDeadline", () => {
       missing,
       garbage,
     ]);
+  });
+});
+
+describe("scrapeContracts with multiple NAICS codes", () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it("queries SAM.gov once per NAICS code and dedupes the results", async () => {
+    const requestedCodes: (string | null)[] = [];
+    global.fetch = (async (url: RequestInfo | URL) => {
+      const ncode = new URL(String(url)).searchParams.get("ncode");
+      requestedCodes.push(ncode);
+      const opportunitiesData =
+        ncode === "561730"
+          ? [
+              { noticeId: "a", title: "Landscaping A" },
+              { noticeId: "shared", title: "Shared Notice" },
+            ]
+          : [
+              { noticeId: "b", title: "Waste B" },
+              { noticeId: "shared", title: "Shared Notice" },
+            ];
+      return new Response(
+        JSON.stringify({ totalRecords: 2, opportunitiesData }),
+        { status: 200 }
+      );
+    }) as typeof fetch;
+
+    const result = await scrapeContracts({
+      source: "opportunities",
+      naicsCodes: ["561730", "562112"],
+      samApiKey: "test-key",
+    });
+
+    expect(requestedCodes).toEqual(["561730", "562112"]);
+    expect(result.records.map((r) => r.id).sort()).toEqual([
+      "a",
+      "b",
+      "shared",
+    ]);
+    expect(result.samTotalRecords).toBe(4);
   });
 });
