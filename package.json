@@ -32,6 +32,7 @@
     "start": "node dist/index.js",
     "prepare": "npm run build:prod",
     "dev": "nodemon --watch src --ext ts,json --exec \"npm run build\"",
+    "scrape": "node dist/scraper/cli.js",
     "publish-patch": "npm version patch && npm run build:prod && npm publish --access public",
     "test": "jest"
   },
